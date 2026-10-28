@@ -127,6 +127,11 @@ pub fn newton_raphson_quantile(
         } else {
             last_step = (high - low) / 2.0;
             x = low + last_step;
+            // With no usable Newton step (e.g. an infinite density all the
+            // way to the root), stop once bisection alone has converged.
+            if last_step <= accuracy * x {
+                return x;
+            }
         }
     }
     x
