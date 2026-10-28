@@ -179,11 +179,17 @@ impl ContinuousCDF<f64, f64> for FisherSnedecor {
         } else if x.is_infinite() {
             0.0
         } else {
-            beta::beta_reg(
-                self.freedom_2 / 2.0,
-                self.freedom_1 / 2.0,
-                1. - ((self.freedom_1 * x) / (self.freedom_1 * x + self.freedom_2)),
-            )
+            let a = self.freedom_1 / 2.0;
+            let b = self.freedom_2 / 2.0;
+            let y = self.freedom_1 * x / (self.freedom_1 * x + self.freedom_2);
+            if y < (a + 1.0) / (a + b + 2.0) {
+                // As in `Beta::sf`: below the continued fraction split point
+                // of `beta_reg`, computing the complement avoids `1 - y`
+                // rounding to 1.0 for tiny y, which would lose the lower tail
+                1.0 - beta::beta_reg(a, b, y)
+            } else {
+                beta::beta_reg(b, a, self.freedom_2 / (self.freedom_1 * x + self.freedom_2))
+            }
         }
     }
 
@@ -639,6 +645,24 @@ mod tests {
     fn test_sf_lower_bound() {
         let sf = |arg: f64| move |x: FisherSnedecor| x.sf(arg);
         test_exact(0.1, 0.1, 1.0, sf(-1.0));
+    }
+
+    #[test]
+    fn test_sf_tiny_x() {
+        // `1 - y` rounds to 1.0 here; see #462
+        let sf = |arg: f64| move |x: FisherSnedecor| x.sf(arg);
+        test_absolute(0.001, 1000.0, 0.026189351026691921228, 1e-12, sf(1e-20));
+        test_absolute(0.001, 1000.0, 0.020567480798405408902, 1e-12, sf(1e-15));
+        test_absolute(0.001, 1000.0, 0.0046530074772800989797, 1e-12, sf(0.1));
+        test_absolute(0.5, 3.0, 0.99999997688248107252, 1e-12, sf(1e-30));
+        test_exact(10.0, 10.0, 1.0, sf(1e-20));
+
+        for (d1, d2) in [(0.001, 1000.0), (0.5, 3.0), (10.0, 10.0)] {
+            let d = create_ok(d1, d2);
+            for x in [1e-20, 1e-15, 0.1, 1.0, 10.0] {
+                assert!((d.cdf(x) + d.sf(x) - 1.0).abs() < 1e-14, "cdf({x}) + sf({x}) for {d}");
+            }
+        }
     }
 
     #[test]
